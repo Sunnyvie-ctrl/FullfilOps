@@ -1,0 +1,35 @@
+# Environments
+.env
+.venv/
+venv/
+ENV/
+env/
+
+# Python caches and compiled files
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# Pytest and coverage
+.pytest_cache/
+.coverage
+htmlcov/
+pytest.xml
+
+# Docker, IDEs, and OS files
+.idea/
+.vscode/
+*.swp
+.DS_Store
+Thumbs.db
+
+# Database and logs
+*.log
+*.sqlite
+*.sqlite3
+*.dump
+*.sql
+
+# Alembic local configurations (if any)
+alembic.ini.local
