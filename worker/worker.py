@@ -8,15 +8,25 @@ Uses only the existing outbox_jobs columns (status, attempts, updated_at):
 Jobs claimed with SELECT ... FOR UPDATE SKIP LOCKED. Jobs left in
 'processing' longer than VISIBILITY_TIMEOUT (crashed worker) are reclaimed.
 """
+
 import logging
 import os
 import signal
 import socket
 import time
-from datetime import datetime, timedelta, timezone
-from typing import Callable
+from collections.abc import Callable
+from datetime import UTC, datetime, timedelta
 
-from sqlalchemy import Float, and_, cast, create_engine, func, literal_column, or_, select
+from sqlalchemy import (
+    Float,
+    and_,
+    cast,
+    create_engine,
+    func,
+    literal_column,
+    or_,
+    select,
+)
 from sqlalchemy.orm import Session, sessionmaker
 
 from api.models import Order, OutboxJob
@@ -24,7 +34,8 @@ from api.models import Order, OutboxJob
 log = logging.getLogger("worker")
 
 DATABASE_URL = os.getenv(
-    "DATABASE_URL", "postgresql://fulfillops_user:secret_password@localhost:5433/fulfillops_db"
+    "DATABASE_URL",
+    "postgresql://fulfillops_user:secret_password@localhost:5433/fulfillops_db",
 )
 BATCH_SIZE = int(os.getenv("WORKER_BATCH_SIZE", "10"))
 POLL_INTERVAL = float(os.getenv("WORKER_POLL_INTERVAL", "1.0"))
@@ -38,7 +49,7 @@ _running = True
 
 def utcnow() -> datetime:
     """Naive UTC, matching the DateTime (no tz) columns in api/models.py."""
-    return datetime.now(timezone.utc).replace(tzinfo=None)
+    return datetime.now(UTC).replace(tzinfo=None)
 
 
 def backoff_seconds(attempts: int) -> float:
@@ -55,7 +66,10 @@ def _retry_due():
 
 
 def claim_jobs(
-    session: Session, worker_id: str, batch_size: int = BATCH_SIZE, now: datetime | None = None
+    session: Session,
+    worker_id: str,
+    batch_size: int = BATCH_SIZE,
+    now: datetime | None = None,
 ) -> list[OutboxJob]:
     """Atomically claim due jobs; rows locked by other workers are skipped."""
     now = now or utcnow()
@@ -68,7 +82,10 @@ def claim_jobs(
                     OutboxJob.status == "pending",
                     or_(OutboxJob.attempts == 0, _retry_due() <= now),
                 ),
-                and_(OutboxJob.status == "processing", OutboxJob.updated_at < stale_before),
+                and_(
+                    OutboxJob.status == "processing",
+                    OutboxJob.updated_at < stale_before,
+                ),
             )
         )
         .order_by(OutboxJob.created_at)
@@ -102,12 +119,17 @@ def mark_failed(session: Session, job_id, error: str) -> None:
     job.updated_at = utcnow()  # start of the backoff window
     if job.attempts >= MAX_ATTEMPTS:
         job.status = "dead"
-        log.error("job %s dead-lettered after %s attempts: %s", job_id, job.attempts, error)
+        log.error(
+            "job %s dead-lettered after %s attempts: %s", job_id, job.attempts, error
+        )
     else:
         job.status = "pending"
         log.warning(
             "job %s failed (attempt %s), retry in ~%ss: %s",
-            job_id, job.attempts, backoff_seconds(job.attempts), error,
+            job_id,
+            job.attempts,
+            backoff_seconds(job.attempts),
+            error,
         )
     session.commit()
 
@@ -123,7 +145,9 @@ def handle_job(session: Session, job: OutboxJob) -> None:
     order.status = "fulfilled"
 
 
-def run_once(factory: sessionmaker, worker_id: str, handler: Callable = handle_job) -> int:
+def run_once(
+    factory: sessionmaker, worker_id: str, handler: Callable = handle_job
+) -> int:
     with factory() as session:
         jobs = claim_jobs(session, worker_id)
     for job in jobs:
