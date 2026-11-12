@@ -16,6 +16,12 @@ from api.models import Base
 # access to the values within the .ini file in use.
 config = context.config
 
+# Let DATABASE_URL (set by Docker/Kubernetes) override the localhost URL in
+# alembic.ini. "%" is doubled because Alembic's config uses % interpolation.
+_db_url = os.getenv("DATABASE_URL")
+if _db_url:
+    config.set_main_option("sqlalchemy.url", _db_url.replace("%", "%%"))
+
 # Interpret the config file for Python logging.
 # This line sets up loggers basically.
 if config.config_file_name is not None:
