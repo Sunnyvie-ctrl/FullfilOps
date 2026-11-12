@@ -1,19 +1,65 @@
+# Local stack: PostgreSQL + one-shot migrations + API + worker.
+#   cp .env.example .env        (first time only; .env is git-ignored)
+#   docker compose up -d --build
+#   API: http://localhost:8080   DB (from your laptop): localhost:5433
+
+x-app-env: &app-env
+  # Inside the compose network the DB is reachable by its service name "db" on 5432.
+  DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}
+
 services:
   db:
     image: postgres:16-alpine
     environment:
-      POSTGRES_USER: fulfillops_user
-      POSTGRES_PASSWORD: secret_password
-      POSTGRES_DB: fulfillops_db
+      POSTGRES_USER: ${POSTGRES_USER:?copy .env.example to .env}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?copy .env.example to .env}
+      POSTGRES_DB: ${POSTGRES_DB:?copy .env.example to .env}
     ports:
       - "5433:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U fulfillops_user -d fulfillops_db"]
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
       interval: 5s
       timeout: 5s
       retries: 5
+
+  # Runs "alembic upgrade head" once, then exits. API and worker wait for it.
+  migrate:
+    build:
+      context: .
+      dockerfile: api/Dockerfile
+    image: fulfillops-api:local
+    command: ["alembic", "upgrade", "head"]
+    environment: *app-env
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: "no"
+
+  api:
+    build:
+      context: .
+      dockerfile: api/Dockerfile
+    image: fulfillops-api:local
+    environment: *app-env
+    ports:
+      - "8080:8080"
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
+  worker:
+    build:
+      context: .
+      dockerfile: worker/Dockerfile
+    image: fulfillops-worker:local
+    environment: *app-env
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    restart: unless-stopped
 
 volumes:
   pgdata:
