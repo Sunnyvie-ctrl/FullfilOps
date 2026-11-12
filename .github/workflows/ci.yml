@@ -79,7 +79,7 @@ jobs:
           upload-artifact: false
       - name: Vulnerability scan (fails on HIGH or CRITICAL)
         if: hashFiles(matrix.dockerfile) != ''
-        uses: aquasecurity/trivy-action@0.28.0
+        uses: aquasecurity/trivy-action@v0.33.1
         with:
           image-ref: fulfillops-${{ matrix.name }}:${{ github.sha }}
           severity: HIGH,CRITICAL
