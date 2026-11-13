@@ -16,7 +16,10 @@ ENV PATH="/opt/venv/bin:$PATH"
 # (code changes won't force a full reinstall).
 COPY requirements.txt .
 RUN pip install --upgrade pip setuptools \
- && pip install -r requirements.txt
+ && pip install -r requirements.txt \
+ && pip uninstall -y pip
+# ^ pip is only needed to BUILD the venv. Removing it keeps it (and the old
+#   setuptools code it vendors, listed in its SBOM) out of the runtime image.
 
 # ---------- Stage 2: runtime (what actually ships) ----------
 FROM python:3.11-slim AS runtime
