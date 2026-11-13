@@ -214,7 +214,7 @@ def run_once(
             try:
                 handler(session, job)
                 session.commit()
-            except Exception as exc:
+            except Exception as exc: # noqa: BLE001
                 session.rollback()
                 mark_failed(session, job.id, repr(exc))
             else:
