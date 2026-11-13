@@ -33,6 +33,8 @@ def order_count(engine):
 def test_health(client):
     assert client.get("/health/live").status_code == 200
 
+def test_intentional_failure():
+    assert 1 == 2  # Deliberate failure for CI demo
 
 def test_catalog_lists_products(client):
     r = client.get("/api/v1/catalog")
