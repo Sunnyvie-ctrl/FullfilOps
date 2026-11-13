@@ -1,8 +1,10 @@
 import os
+import uuid
 import hashlib
 import json
 from typing import List
 from fastapi import FastAPI, Header, Request, HTTPException, Depends
+from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse, PlainTextResponse
 from pydantic import BaseModel, conlist, Field
 from sqlalchemy import create_engine
@@ -47,6 +49,17 @@ def get_db():
 
 def json_error(code: str, message: str, status_code: int):
     return JSONResponse(status_code=status_code, content={"error": {"code": code, "message": message}})
+
+
+@app.exception_handler(RequestValidationError)
+async def validation_error_handler(request: Request, exc: RequestValidationError):
+    """Return our {"error": {...}} shape instead of FastAPI's default {"detail": [...]}."""
+    errors = exc.errors()
+    if any(err.get("loc", ())[-1:] == ("quantity",) for err in errors):
+        code, message = "INVALID_QUANTITY", "Each item quantity must be between 1 and 20"
+    else:
+        code, message = "INVALID_REQUEST", "Request body failed validation"
+    return json_error(code, message, 422)
 
 @app.middleware("http")
 async def process_request(request: Request, call_next):
@@ -173,7 +186,13 @@ async def create_order(
 
 @app.get("/api/v1/orders/{order_id}")
 def get_order(order_id: str, db: Session = Depends(get_db)):
-    order = db.query(Order).filter(Order.id == order_id).first()
+    # Order ids are UUIDs: anything else can't exist, and passing it to
+    # PostgreSQL would raise a type error (HTTP 500) instead of a clean 404.
+    try:
+        order_uuid = uuid.UUID(order_id)
+    except ValueError:
+        return json_error("ORDER_NOT_FOUND", "Order not found", 404)
+    order = db.query(Order).filter(Order.id == order_uuid).first()
     if not order:
         return json_error("ORDER_NOT_FOUND", "Order not found", 404)
     return {"order_id": str(order.id), "status": order.status, "total_cents": order.total_cents}
