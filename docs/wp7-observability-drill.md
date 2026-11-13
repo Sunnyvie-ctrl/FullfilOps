@@ -98,4 +98,11 @@ sum by (pod) (rate(fulfillops_http_requests_total[1m]))
 
 | Date (UTC) | Git revision | Probe total | Failures | Notes |
 |---|---|---|---|---|
-| _fill in_ | _commit SHA_ | | | |
+| 2026-11-13 | `1d49c75` (PR #9, release v1 → v2) | 236 | **0** | Argo CD sync → RollingUpdate rev 1→2 in ~10 s; ready API pods never < 2; old pods ended `Completed` (graceful shutdown). |
+
+### Observations
+
+- **Chain of custody:** PR #9 merged → Argo CD synced revision `1d49c75` (`kubectl -n argocd get application fulfillops -o jsonpath="{.status.sync.revision}"`) → `fulfillops-api` revision 1 → 2 (`kubectl rollout history`).
+- **Rollout sequence** (`kubectl get pods -w`): new pod ready after ~7 s → first old pod terminated → second new pod ready → second old pod terminated. Total ≈ 10 s.
+- **Prometheus:** request rate per pod shows the two v1 pods dropping to zero while the two v2 pods take over the same traffic, with no gap.
+- **Sampling caveat:** 236 samples in 300 s (~0.8/s instead of 4/s). On Windows, `localhost` first tries IPv6 `::1` (kind listens on IPv4 only) and falls back after ~1 s per request. Re-run with `--base-url http://127.0.0.1:8080` for the full 4 req/s sampling rate.
