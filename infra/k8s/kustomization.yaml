@@ -10,6 +10,7 @@ labels:
 
 resources:
   - configmap.yaml
+  - secret.yaml
   - postgres.yaml
   - migrate-job.yaml
   - api.yaml
