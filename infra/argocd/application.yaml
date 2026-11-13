@@ -1,0 +1,22 @@
+# Argo CD watches infra/k8s in this Git repo and keeps the cluster in sync (GitOps).
+# Apply once:  kubectl apply -n argocd -f infra/argocd/application.yaml
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: fulfillops
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/Sunnyvie-ctrl/FullfilOps.git
+    targetRevision: main
+    path: infra/k8s
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: fulfillops
+  syncPolicy:
+    automated:
+      prune: true      # delete things that were removed from Git
+      selfHeal: true   # undo manual changes made with kubectl
+    syncOptions:
+      - CreateNamespace=true

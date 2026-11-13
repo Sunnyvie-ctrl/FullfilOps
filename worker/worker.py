@@ -43,6 +43,9 @@ MAX_ATTEMPTS = int(os.getenv("WORKER_MAX_ATTEMPTS", "5"))
 BACKOFF_BASE = float(os.getenv("WORKER_BACKOFF_BASE", "2.0"))  # seconds
 BACKOFF_CAP = float(os.getenv("WORKER_BACKOFF_CAP", "300.0"))
 VISIBILITY_TIMEOUT = float(os.getenv("WORKER_VISIBILITY_TIMEOUT", "60.0"))
+# If set (Kubernetes does), the loop touches this file on every iteration so a
+# liveness probe can detect a stuck worker. Empty = disabled (local dev, tests).
+HEARTBEAT_FILE = os.getenv("WORKER_HEARTBEAT_FILE", "")
 
 _running = True
 
@@ -177,6 +180,9 @@ def main() -> None:
     worker_id = f"{socket.gethostname()}-{os.getpid()}"
     log.info("worker %s started", worker_id)
     while _running:
+        if HEARTBEAT_FILE:
+            with open(HEARTBEAT_FILE, "w") as f:
+                f.write(str(time.time()))
         if run_once(factory, worker_id) == 0:
             time.sleep(POLL_INTERVAL)
     log.info("worker %s stopped", worker_id)
