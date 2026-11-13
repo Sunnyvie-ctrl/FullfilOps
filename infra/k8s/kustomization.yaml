@@ -14,6 +14,8 @@ resources:
   - migrate-job.yaml
   - api.yaml
   - worker.yaml
+  - api-nodeport.yaml
+  - prometheus.yaml
 
 # NOTE: the Secret "fulfillops-db" is NOT in Git on purpose.
 # Create it once by hand (see infra/README.md).
