@@ -66,7 +66,7 @@ spec:
             - name: DATABASE_URL
               value: postgresql://$(POSTGRES_USER):$(POSTGRES_PASSWORD)@postgres:5432/$(POSTGRES_DB)
           readinessProbe:
-            httpGet: { path: /health/invalid-path, port: http }
+            httpGet: { path: /health/ready, port: http }
             periodSeconds: 5
             timeoutSeconds: 2
             failureThreshold: 3
