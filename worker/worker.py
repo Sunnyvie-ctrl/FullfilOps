@@ -1,12 +1,13 @@
 """FulfillOps outbox worker: at-least-once, safe across multiple replicas.
 
 Uses only the existing outbox_jobs columns (status, attempts, updated_at):
-  pending     -> waiting (or waiting out its retry backoff)
-  processing  -> claimed by a worker; updated_at = claim time
-  done        -> finished
-  dead        -> dead-letter queue (gave up after MAX_ATTEMPTS)
-Jobs claimed with SELECT ... FOR UPDATE SKIP LOCKED. Jobs left in
-'processing' longer than VISIBILITY_TIMEOUT (crashed worker) are reclaimed.
+    pending     -> waiting or waiting out its retry backoff
+    processing  -> claimed by a worker
+    done        -> finished
+    dead        -> dead-letter queue after MAX_ATTEMPTS
+
+Jobs are claimed with SELECT ... FOR UPDATE SKIP LOCKED.
+Jobs left in 'processing' longer than VISIBILITY_TIMEOUT are reclaimed.
 """
 
 import logging
@@ -43,8 +44,10 @@ MAX_ATTEMPTS = int(os.getenv("WORKER_MAX_ATTEMPTS", "5"))
 BACKOFF_BASE = float(os.getenv("WORKER_BACKOFF_BASE", "2.0"))
 BACKOFF_CAP = float(os.getenv("WORKER_BACKOFF_CAP", "300.0"))
 VISIBILITY_TIMEOUT = float(os.getenv("WORKER_VISIBILITY_TIMEOUT", "60.0"))
-# If set (Kubernetes does), the loop touches this file on every iteration so a
-# liveness probe can detect a stuck worker. Empty = disabled (local dev, tests).
+
+# If set (Kubernetes does), the loop touches this file on every iteration
+# so a liveness probe can detect a stuck worker.
+# Empty = disabled (local dev, tests).
 HEARTBEAT_FILE = os.getenv("WORKER_HEARTBEAT_FILE", "")
 
 _running = True
@@ -63,7 +66,8 @@ def backoff_seconds(attempts: int) -> float:
 def _retry_due():
     """SQL version of backoff_seconds: updated_at + backoff <= now."""
     delay = func.least(
-        BACKOFF_BASE * func.power(2.0, cast(OutboxJob.attempts - 1, Float)), BACKOFF_CAP
+        BACKOFF_BASE * func.power(2.0, cast(OutboxJob.attempts - 1, Float)),
+        BACKOFF_CAP,
     )
     return OutboxJob.updated_at + delay * literal_column("interval '1 second'")
 
@@ -77,6 +81,7 @@ def claim_jobs(
     """Atomically claim due jobs; rows locked by other workers are skipped."""
     now = now or utcnow()
     stale_before = now - timedelta(seconds=VISIBILITY_TIMEOUT)
+
     stmt = (
         select(OutboxJob)
         .where(
@@ -95,48 +100,80 @@ def claim_jobs(
         .limit(batch_size)
         .with_for_update(skip_locked=True)
     )
+
     claimed: list[OutboxJob] = []
+
     for job in session.scalars(stmt).all():
         job.updated_at = now
+
+        # A repeatedly crashing worker has exhausted this job's attempts.
         if job.attempts >= MAX_ATTEMPTS:
             job.status = "dead"
-            # FAIL THE ORDER
+
             order = session.get(Order, job.order_id)
-            if order:
+            if order is not None:
                 order.status = "failed"
-            log.error("job %s dead-lettered (stale, %s attempts)", job.id, job.attempts)
+
+            log.error(
+                "job %s dead-lettered (stale, %s attempts)",
+                job.id,
+                job.attempts,
+            )
             continue
+
         job.status = "processing"
         job.attempts += 1
-        log.info("%s claimed job %s (attempt %s)", worker_id, job.id, job.attempts)
+
+        # Keep the order status consistent with the job lifecycle.
+        order = session.get(Order, job.order_id)
+        if order is not None:
+            order.status = "processing"
+
+        log.info(
+            "%s claimed job %s (attempt %s)",
+            worker_id,
+            job.id,
+            job.attempts,
+        )
         claimed.append(job)
+
     session.commit()
     return claimed
 
 
 def mark_done(session: Session, job_id) -> None:
+    """Mark a successfully handled job as done."""
     job = session.get(OutboxJob, job_id, with_for_update=True)
-    if not job:
+    if job is None:
+        log.error("job %s not found while marking done", job_id)
         return
+
     job.status = "done"
     job.updated_at = utcnow()
     session.commit()
 
 
 def mark_failed(session: Session, job_id, error: str) -> None:
+    """Retry a failed job or dead-letter it when attempts are exhausted."""
     job = session.get(OutboxJob, job_id, with_for_update=True)
-    if not job:
+    if job is None:
+        log.error("job %s not found while marking failed", job_id)
         return
 
     job.updated_at = utcnow()
+
     if job.attempts >= MAX_ATTEMPTS:
         job.status = "dead"
-        # FAIL THE ORDER
+
         order = session.get(Order, job.order_id)
-        if order:
+        if order is not None:
             order.status = "failed"
+
         log.error(
-            "job %s dead-lettered after %s attempts: %s", job_id, job.attempts, error
+            "job %s dead-lettered after %s attempts: %s",
+            job_id,
+            job.attempts,
+            error,
         )
     else:
         job.status = "pending"
@@ -147,6 +184,7 @@ def mark_failed(session: Session, job_id, error: str) -> None:
             backoff_seconds(job.attempts),
             error,
         )
+
     session.commit()
 
 
@@ -156,16 +194,21 @@ def handle_job(session: Session, job: OutboxJob) -> None:
     The grading checker expects the final order status to be "completed".
     """
     order = session.get(Order, job.order_id)
+
     if order is None:
         raise ValueError(f"order {job.order_id} not found")
+
     order.status = "completed"
 
 
 def run_once(
-    factory: sessionmaker, worker_id: str, handler: Callable = handle_job
+    factory: sessionmaker,
+    worker_id: str,
+    handler: Callable = handle_job,
 ) -> int:
     with factory() as session:
         jobs = claim_jobs(session, worker_id)
+
     for job in jobs:
         with factory() as session:
             try:
@@ -176,6 +219,7 @@ def run_once(
                 mark_failed(session, job.id, repr(exc))
             else:
                 mark_done(session, job.id)
+
     return len(jobs)
 
 
@@ -188,16 +232,21 @@ def main() -> None:
     logging.basicConfig(level=os.getenv("LOG_LEVEL", "INFO"))
     signal.signal(signal.SIGTERM, _stop)
     signal.signal(signal.SIGINT, _stop)
+
     engine = create_engine(DATABASE_URL, pool_pre_ping=True)
     factory = sessionmaker(engine, expire_on_commit=False)
+
     worker_id = f"{socket.gethostname()}-{os.getpid()}"
     log.info("worker %s started", worker_id)
+
     while _running:
         if HEARTBEAT_FILE:
             with open(HEARTBEAT_FILE, "w") as f:
                 f.write(str(time.time()))
+
         if run_once(factory, worker_id) == 0:
             time.sleep(POLL_INTERVAL)
+
     log.info("worker %s stopped", worker_id)
 
 

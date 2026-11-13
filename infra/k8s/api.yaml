@@ -39,6 +39,8 @@ spec:
         prometheus.io/scrape: "true"
         prometheus.io/port: "8080"
         prometheus.io/path: /metrics
+        # Bump this value in Git to roll out a new version (WP7 drill).
+        fulfillops.io/release: "v2"
     spec:
       terminationGracePeriodSeconds: 30
       securityContext:
