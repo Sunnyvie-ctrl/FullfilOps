@@ -28,8 +28,8 @@ spec:
   strategy:
     type: RollingUpdate
     rollingUpdate:
-      maxSurge: 1          # start 1 new pod first...
-      maxUnavailable: 0    # ...and never drop below 2 ready pods
+      maxSurge: 1          
+      maxUnavailable: 0    
   template:
     metadata:
       labels:

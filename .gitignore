@@ -33,3 +33,6 @@ Thumbs.db
 
 # Alembic local configurations (if any)
 alembic.ini.local
+
+
+TEAM_ONBOARDING_AND_LLM_CONTEXT.md

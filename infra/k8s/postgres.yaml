@@ -32,7 +32,7 @@ spec:
     spec:
       securityContext:
         runAsNonRoot: true
-        runAsUser: 70        # "postgres" user in the alpine image
+        runAsUser: 70        
         runAsGroup: 70
         fsGroup: 70
         seccompProfile:

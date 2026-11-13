@@ -214,7 +214,7 @@ def run_once(
             try:
                 handler(session, job)
                 session.commit()
-            except Exception as exc:  # noqa: BLE001
+            except Exception as exc:
                 session.rollback()
                 mark_failed(session, job.id, repr(exc))
             else:
@@ -230,7 +230,6 @@ def _stop(*_):
 
 def main() -> None:
     logging.basicConfig(level=os.getenv("LOG_LEVEL", "INFO"))
-
     signal.signal(signal.SIGTERM, _stop)
     signal.signal(signal.SIGINT, _stop)
 
