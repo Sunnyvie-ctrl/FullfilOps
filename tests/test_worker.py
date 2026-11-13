@@ -49,7 +49,7 @@ def test_success_marks_done_and_fulfils_order(factory):
     job = get_job(factory, jid)
     assert job.status == "done" and job.attempts == 1
     with factory() as s:
-        assert s.get(Order, job.order_id).status == "fulfilled"
+        assert s.get(Order, job.order_id).status == "completed"
 
 
 def test_done_job_is_not_processed_again(factory):
