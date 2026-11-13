@@ -6,11 +6,11 @@ from typing import List
 from fastapi import FastAPI, Header, Request, HTTPException, Depends
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse, PlainTextResponse
-from pydantic import BaseModel, conlist, Field
-from sqlalchemy import create_engine
+from pydantic import BaseModel, Field, StrictInt
+from sqlalchemy import create_engine, text
 from sqlalchemy.orm import sessionmaker, Session
 from sqlalchemy.exc import IntegrityError
-from prometheus_client import Counter, Histogram, generate_latest, CONTENT_TYPE_LATEST
+from prometheus_client import Counter, Histogram, Gauge, generate_latest, CONTENT_TYPE_LATEST
 import time
 
 from .models import Base, Product, Order, OrderItem, OutboxJob
@@ -28,16 +28,16 @@ ORDERS_CREATED = Counter("fulfillops_orders_created_total", "Total orders accept
 ORDERS_FAILED = Counter("fulfillops_orders_failed_total", "Total order failures (API rejections)")
 REQUEST_LATENCY = Histogram("fulfillops_http_request_duration_seconds", "HTTP request latency", ["endpoint"])
 
-WORKER_RETRIES = Counter("fulfillops_worker_retries_total", "Total worker retries")
+WORKER_RETRIES_GAUGE = Gauge("fulfillops_worker_retries_total", "Total worker retries across all jobs")
 
 
 class ItemRequest(BaseModel):
     sku: str = Field(..., min_length=1)
-    quantity: int = Field(..., gt=0, le=20)
+    quantity: StrictInt = Field(..., gt=0, le=20)
 
 class OrderRequest(BaseModel):
     customer_id: str = Field(..., min_length=1, max_length=64)
-    items: conlist(ItemRequest, min_length=1, max_length=10)
+    items: list[ItemRequest] = Field(..., min_length=1, max_length=10)
 
 # --- Dependency ---
 def get_db():
@@ -50,16 +50,17 @@ def get_db():
 def json_error(code: str, message: str, status_code: int):
     return JSONResponse(status_code=status_code, content={"error": {"code": code, "message": message}})
 
-
 @app.exception_handler(RequestValidationError)
 async def validation_error_handler(request: Request, exc: RequestValidationError):
-    """Return our {"error": {...}} shape instead of FastAPI's default {"detail": [...]}."""
+    """Return our {"error": {...}} shape and strict status codes."""
     errors = exc.errors()
+    if any(err.get("type") == "json_invalid" for err in errors):
+        return json_error("INVALID_JSON", "Invalid JSON body", 400)
+    
     if any(err.get("loc", ())[-1:] == ("quantity",) for err in errors):
-        code, message = "INVALID_QUANTITY", "Each item quantity must be between 1 and 20"
-    else:
-        code, message = "INVALID_REQUEST", "Request body failed validation"
-    return json_error(code, message, 422)
+        return json_error("INVALID_QUANTITY", "Each item quantity must be between 1 and 20", 422)
+    
+    return json_error("INVALID_REQUEST", "Request body failed validation", 400)
 
 @app.middleware("http")
 async def process_request(request: Request, call_next):
@@ -77,7 +78,6 @@ async def process_request(request: Request, call_next):
     REQUEST_LATENCY.labels(endpoint=route_path).observe(duration)
     
     return response
-
 
 @app.get("/health/live")
 def live():
@@ -118,6 +118,9 @@ async def create_order(
         return json_error("IDEMPOTENCY_REQUIRED", "Valid Idempotency-Key header is required", 400)
 
     raw_body = await request.body()
+    if len(raw_body) > 16384:
+        return json_error("INVALID_REQUEST", "Request body exceeds 16 KiB limit", 400)
+
     try:
         parsed_json = json.loads(raw_body)
         normalized_payload = json.dumps(parsed_json, sort_keys=True)
@@ -177,6 +180,9 @@ async def create_order(
 
     except IntegrityError:
         db.rollback()
+        existing = db.query(Order).filter(Order.idempotency_key == idempotency_key).first()
+        if existing and existing.payload_hash == payload_hash:
+            return JSONResponse(status_code=202, content={"order_id": str(existing.id), "status": "queued"})
         ORDERS_FAILED.inc()
         return json_error("IDEMPOTENCY_CONFLICT", "Simultaneous idempotency conflict", 409)
     except Exception as e:
@@ -186,8 +192,6 @@ async def create_order(
 
 @app.get("/api/v1/orders/{order_id}")
 def get_order(order_id: str, db: Session = Depends(get_db)):
-    # Order ids are UUIDs: anything else can't exist, and passing it to
-    # PostgreSQL would raise a type error (HTTP 500) instead of a clean 404.
     try:
         order_uuid = uuid.UUID(order_id)
     except ValueError:
@@ -198,7 +202,7 @@ def get_order(order_id: str, db: Session = Depends(get_db)):
     return {"order_id": str(order.id), "status": order.status, "total_cents": order.total_cents}
 
 @app.get("/metrics")
-def get_metrics():
+def get_metrics(db: Session = Depends(get_db)):
+    retry_sum = db.execute(text("SELECT COALESCE(SUM(attempts - 1), 0) FROM outbox_jobs WHERE attempts > 1")).scalar()
+    WORKER_RETRIES_GAUGE.set(int(retry_sum or 0))
     return PlainTextResponse(generate_latest(), media_type=CONTENT_TYPE_LATEST)
-
-from sqlalchemy import text

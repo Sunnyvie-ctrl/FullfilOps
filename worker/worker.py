@@ -40,7 +40,7 @@ DATABASE_URL = os.getenv(
 BATCH_SIZE = int(os.getenv("WORKER_BATCH_SIZE", "10"))
 POLL_INTERVAL = float(os.getenv("WORKER_POLL_INTERVAL", "1.0"))
 MAX_ATTEMPTS = int(os.getenv("WORKER_MAX_ATTEMPTS", "5"))
-BACKOFF_BASE = float(os.getenv("WORKER_BACKOFF_BASE", "2.0"))  # seconds
+BACKOFF_BASE = float(os.getenv("WORKER_BACKOFF_BASE", "2.0"))  
 BACKOFF_CAP = float(os.getenv("WORKER_BACKOFF_CAP", "300.0"))
 VISIBILITY_TIMEOUT = float(os.getenv("WORKER_VISIBILITY_TIMEOUT", "60.0"))
 # If set (Kubernetes does), the loop touches this file on every iteration so a
@@ -98,8 +98,12 @@ def claim_jobs(
     claimed: list[OutboxJob] = []
     for job in session.scalars(stmt).all():
         job.updated_at = now
-        if job.attempts >= MAX_ATTEMPTS:  # kept crashing workers -> dead-letter
+        if job.attempts >= MAX_ATTEMPTS:  
             job.status = "dead"
+            # FAIL THE ORDER
+            order = session.get(Order, job.order_id)
+            if order:
+                order.status = "failed"
             log.error("job %s dead-lettered (stale, %s attempts)", job.id, job.attempts)
             continue
         job.status = "processing"
@@ -112,6 +116,8 @@ def claim_jobs(
 
 def mark_done(session: Session, job_id) -> None:
     job = session.get(OutboxJob, job_id, with_for_update=True)
+    if not job:
+        return
     job.status = "done"
     job.updated_at = utcnow()
     session.commit()
@@ -119,9 +125,16 @@ def mark_done(session: Session, job_id) -> None:
 
 def mark_failed(session: Session, job_id, error: str) -> None:
     job = session.get(OutboxJob, job_id, with_for_update=True)
-    job.updated_at = utcnow()  # start of the backoff window
+    if not job:
+        return
+    
+    job.updated_at = utcnow()  
     if job.attempts >= MAX_ATTEMPTS:
         job.status = "dead"
+        # FAIL THE ORDER
+        order = session.get(Order, job.order_id)
+        if order:
+            order.status = "failed"
         log.error(
             "job %s dead-lettered after %s attempts: %s", job_id, job.attempts, error
         )
@@ -158,7 +171,7 @@ def run_once(
             try:
                 handler(session, job)
                 session.commit()
-            except Exception as exc:  # noqa: BLE001
+            except Exception as exc:  
                 session.rollback()
                 mark_failed(session, job.id, repr(exc))
             else:
@@ -173,7 +186,7 @@ def _stop(*_):
 
 def main() -> None:
     logging.basicConfig(level=os.getenv("LOG_LEVEL", "INFO"))
-    signal.signal(signal.SIGTERM, _stop)  # graceful stop during rolling updates
+    signal.signal(signal.SIGTERM, _stop)  
     signal.signal(signal.SIGINT, _stop)
     engine = create_engine(DATABASE_URL, pool_pre_ping=True)
     factory = sessionmaker(engine, expire_on_commit=False)
