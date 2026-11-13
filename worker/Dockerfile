@@ -22,7 +22,15 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PATH="/opt/venv/bin:$PATH"
 
-RUN python -m pip uninstall -y pip setuptools wheel || true
+# 1) Install Debian security updates (e.g. zlib CVE fixes published after the
+#    base image was built).
+# 2) Remove Python packaging tools the app never uses at runtime, including the
+#    spare wheels ensurepip keeps on disk: they are a common source of Trivy findings.
+RUN apt-get update \
+ && apt-get upgrade -y --no-install-recommends \
+ && rm -rf /var/lib/apt/lists/* \
+ && (python -m pip uninstall -y setuptools wheel pip || true) \
+ && rm -rf /usr/local/lib/python3.11/ensurepip/_bundled
 
 RUN groupadd --system --gid 10001 app \
  && useradd --system --uid 10001 --gid app --no-create-home --shell /usr/sbin/nologin app
