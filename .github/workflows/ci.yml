@@ -79,7 +79,9 @@ jobs:
           upload-artifact: false
       - name: Vulnerability scan (fails on HIGH or CRITICAL)
         if: hashFiles(matrix.dockerfile) != ''
-        uses: aquasecurity/trivy-action@v0.33.1
+        # Pinned by commit SHA: trivy-action tags were hijacked in the March 2026
+        # supply-chain attack, and v0.33.1 installs a Trivy release that was deleted.
+        uses: aquasecurity/trivy-action@57a97c7e7821a5776cebc9bb87c984fa69cba8f1 # v0.35.0
         with:
           image-ref: fulfillops-${{ matrix.name }}:${{ github.sha }}
           severity: HIGH,CRITICAL

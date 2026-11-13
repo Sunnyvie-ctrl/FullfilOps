@@ -1,5 +1,4 @@
-﻿
-import uuid
+﻿import uuid
 from concurrent.futures import ThreadPoolExecutor
 from datetime import timedelta
 
@@ -129,9 +128,7 @@ def test_dead_letter_after_max_attempts(factory, monkeypatch):
     assert w.run_once(factory, "w1") == 0
 
 
-def test_stale_job_exhausting_attempts_marks_order_failed(
-    factory, monkeypatch
-):
+def test_stale_job_exhausting_attempts_marks_order_failed(factory, monkeypatch):
     monkeypatch.setattr(w, "MAX_ATTEMPTS", 3)
 
     (jid,) = make_jobs(factory)
@@ -141,9 +138,7 @@ def test_stale_job_exhausting_attempts_marks_order_failed(
         order_id = job.order_id
         job.status = "processing"
         job.attempts = 3
-        job.updated_at = w.utcnow() - timedelta(
-            seconds=w.VISIBILITY_TIMEOUT + 5
-        )
+        job.updated_at = w.utcnow() - timedelta(seconds=w.VISIBILITY_TIMEOUT + 5)
         s.commit()
 
     with factory() as s:
@@ -168,9 +163,7 @@ def test_crashed_worker_job_is_reclaimed(factory):
         job = s.get(OutboxJob, jid)
         job.status = "processing"
         job.attempts = 1
-        job.updated_at = w.utcnow() - timedelta(
-            seconds=w.VISIBILITY_TIMEOUT + 5
-        )
+        job.updated_at = w.utcnow() - timedelta(seconds=w.VISIBILITY_TIMEOUT + 5)
         s.commit()
 
     assert w.run_once(factory, "w2") == 1

@@ -1,0 +1,21 @@
+# Keep the build context small and keep secrets/junk out of images.
+.git
+.github
+.venv
+venv
+env
+ENV
+.env
+**/__pycache__
+**/*.py[cod]
+.pytest_cache
+.coverage
+htmlcov
+tests
+docs
+infra
+*.log
+*.csv
+.idea
+.vscode
+compose.yaml

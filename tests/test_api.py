@@ -104,6 +104,18 @@ def test_get_unknown_order_is_404(client):
     assert client.get(f"{ORDERS}/{uuid.uuid4()}").status_code == 404
 
 
+def test_get_non_uuid_order_is_404_not_500(client):
+    r = client.get(f"{ORDERS}/not-real-order")
+    assert r.status_code == 404
+    assert r.json()["error"]["code"] == "ORDER_NOT_FOUND"
+
+
+def test_invalid_quantity_is_422_with_error_object(client):
+    r = client.post(ORDERS, json=body("KIT-100", 0), headers=hdr())
+    assert r.status_code == 422
+    assert r.json()["error"]["code"] == "INVALID_QUANTITY"
+
+
 def test_race_identical_idempotency_key(sku, engine):
     """10 simultaneous requests, SAME key -> exactly one order, stock taken once."""
     n, key = 10, str(uuid.uuid4())

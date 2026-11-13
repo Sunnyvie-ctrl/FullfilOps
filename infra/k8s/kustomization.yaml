@@ -1,0 +1,21 @@
+# Entry point: "kubectl apply -k infra/k8s" or Argo CD (path: infra/k8s).
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: fulfillops
+
+labels:
+  - pairs:
+      app.kubernetes.io/part-of: fulfillops
+
+resources:
+  - configmap.yaml
+  - postgres.yaml
+  - migrate-job.yaml
+  - api.yaml
+  - worker.yaml
+  - api-nodeport.yaml
+  - prometheus.yaml
+
+# NOTE: the Secret "fulfillops-db" is NOT in Git on purpose.
+# Create it once by hand (see infra/README.md).

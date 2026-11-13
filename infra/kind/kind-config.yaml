@@ -1,0 +1,20 @@
+# kind cluster with a real port into the cluster (instead of kubectl port-forward).
+#   kind create cluster --name fulfillops --config infra/kind/kind-config.yaml
+#
+# Why: "kubectl port-forward svc/..." pins ONE pod. During a rolling update that
+# pod is deleted and the tunnel dies -> the rollout probe sees failures even though
+# the app stays up. A NodePort goes through the Service, which only routes to READY
+# pods, so the probe measures the real zero-downtime behaviour.
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+nodes:
+  - role: control-plane
+    extraPortMappings:
+      - containerPort: 30080   # NodePort of fulfillops-api-nodeport
+        hostPort: 8080         # -> http://localhost:8080 on your laptop
+        listenAddress: "127.0.0.1"
+        protocol: TCP
+      - containerPort: 30090   # NodePort of prometheus
+        hostPort: 9090         # -> http://localhost:9090
+        listenAddress: "127.0.0.1"
+        protocol: TCP
