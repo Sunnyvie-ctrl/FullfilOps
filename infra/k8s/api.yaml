@@ -1,4 +1,3 @@
-# FulfillOps API: 2 replicas, zero-downtime rolling updates, health probes.
 apiVersion: v1
 kind: Service
 metadata:
@@ -28,18 +27,16 @@ spec:
   strategy:
     type: RollingUpdate
     rollingUpdate:
-      maxSurge: 1          
-      maxUnavailable: 0    
+      maxSurge: 1
+      maxUnavailable: 0
   template:
     metadata:
       labels:
         app.kubernetes.io/name: fulfillops-api
       annotations:
-        # Lets Prometheus find /metrics (WP7).
         prometheus.io/scrape: "true"
         prometheus.io/port: "8080"
         prometheus.io/path: /metrics
-        # Bump this value in Git to roll out a new version (WP7 drill).
         fulfillops.io/release: "v2"
     spec:
       terminationGracePeriodSeconds: 30
@@ -68,13 +65,11 @@ spec:
                 configMapKeyRef: { name: fulfillops-config, key: POSTGRES_DB }
             - name: DATABASE_URL
               value: postgresql://$(POSTGRES_USER):$(POSTGRES_PASSWORD)@postgres:5432/$(POSTGRES_DB)
-          # "Am I ready for traffic?" -> checks the DB connection.
           readinessProbe:
             httpGet: { path: /health/ready, port: http }
             periodSeconds: 5
             timeoutSeconds: 2
             failureThreshold: 3
-          # "Am I still alive?" -> no DB check, so a DB blip doesn't restart pods.
           livenessProbe:
             httpGet: { path: /health/live, port: http }
             initialDelaySeconds: 10
@@ -82,7 +77,6 @@ spec:
             timeoutSeconds: 2
             failureThreshold: 3
           lifecycle:
-            # Give the Service time to stop sending traffic before uvicorn exits.
             preStop:
               exec:
                 command: ["sleep", "5"]
