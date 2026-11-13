@@ -13,6 +13,9 @@ Commands are PowerShell (Windows); they are the same on Linux/macOS.
 | `k8s/migrate-job.yaml` | `alembic upgrade head` as an Argo CD Sync hook (wave 1) |
 | `k8s/api.yaml` | API Deployment (2 replicas, probes, zero-downtime strategy) + Service (wave 2) |
 | `k8s/worker.yaml` | Worker Deployment (2 replicas, heartbeat liveness probe) (wave 2) |
+| `k8s/api-nodeport.yaml` | NodePort 30080 for the API (load-balanced across ready pods) |
+| `k8s/prometheus.yaml` | Prometheus scraping annotated API pods (namespace-scoped RBAC) |
+| `kind/kind-config.yaml` | kind cluster with host port mappings 8080/9090 |
 | `argocd/application.yaml` | Argo CD Application pointing at `infra/k8s` on `main` |
 
 The Secret `fulfillops-db` is **not** in Git; it is created by hand (step 3).
@@ -20,9 +23,11 @@ The Secret `fulfillops-db` is **not** in Git; it is created by hand (step 3).
 ## 1. Create the cluster
 
 ```powershell
-kind create cluster --name fulfillops
+kind create cluster --name fulfillops --config infra/kind/kind-config.yaml
 kubectl cluster-info --context kind-fulfillops
 ```
+
+The config maps `localhost:8080` → API (NodePort 30080) and `localhost:9090` → Prometheus (NodePort 30090).
 
 ## 2. Build the images and load them into kind
 
@@ -65,9 +70,9 @@ Argo CD UI: `kubectl -n argocd port-forward svc/argocd-server 8443:443` then htt
 
 ## 5. Reach the API and seed test data
 
+No port-forward needed: `localhost:8080` reaches the API through the NodePort.
+
 ```powershell
-kubectl -n fulfillops port-forward svc/fulfillops-api 8080:8080
-# second terminal:
 kubectl -n fulfillops exec deploy/fulfillops-api -- python scripts/reset-test-data.py
 curl.exe http://localhost:8080/health/ready
 ```
@@ -83,3 +88,7 @@ curl.exe http://localhost:8080/health/ready
 - **Ordering:** sync-waves: postgres (0) → migrate Job (1) → api/worker (2).
 - **Security:** all app pods run as UID 10001, `runAsNonRoot`, read-only root filesystem, no privilege
   escalation, all Linux capabilities dropped, `RuntimeDefault` seccomp. Postgres runs as UID 70.
+
+## 6. Observability & zero-downtime drill (WP7)
+
+See `docs/wp7-observability-drill.md`.
