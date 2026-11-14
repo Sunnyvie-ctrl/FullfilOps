@@ -37,7 +37,7 @@ spec:
         prometheus.io/scrape: "true"
         prometheus.io/port: "8080"
         prometheus.io/path: /metrics
-        fulfillops.io/release: "v2"
+        fulfillops.io/release: "v3"
     spec:
       terminationGracePeriodSeconds: 30
       securityContext:
