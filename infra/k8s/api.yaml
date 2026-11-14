@@ -56,10 +56,10 @@ spec:
           env:
             - name: POSTGRES_USER
               valueFrom:
-                secretKeyRef: { name: fulfillops-db, key: POSTGRES_USER }
+                secretKeyRef: { name: fulfillops-secrets, key: POSTGRES_USER }
             - name: POSTGRES_PASSWORD
               valueFrom:
-                secretKeyRef: { name: fulfillops-db, key: POSTGRES_PASSWORD }
+                secretKeyRef: { name: fulfillops-secrets, key: POSTGRES_PASSWORD }
             - name: POSTGRES_DB
               valueFrom:
                 configMapKeyRef: { name: fulfillops-config, key: POSTGRES_DB }
