@@ -36,3 +36,7 @@ alembic.ini.local
 
 
 TEAM_ONBOARDING_AND_LLM_CONTEXT.md
+
+# Secrets and local configurations
+secret.yaml
+infra/k8s/secret.yaml
