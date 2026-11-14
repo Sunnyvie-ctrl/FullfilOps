@@ -84,6 +84,21 @@ cd FullfilOps
    kubectl get pods -n fulfillops
    ```
 
+### 2.4 (Supplement) Handling Kubernetes Secrets in GitOps
+Because production secrets (`secret.yaml`) contain sensitive credentials, they are excluded from version control via `.gitignore`. 
+
+If you are deploying via Kubernetes and Argo CD:
+1. **Copy the example template to create your local secret:**
+   ```bash
+   cp infra/k8s/secret.example.yaml infra/k8s/secret.yaml
+   ```
+2. **Edit `infra/k8s/secret.yaml`** and replace the placeholder values with your actual database passwords and credentials.
+3. **Apply the secret directly to your cluster** BEFORE Argo CD syncs the application (since `secret.yaml` is git-ignored and excluded from `kustomization.yaml`):
+   ```bash
+   kubectl apply -f infra/k8s/secret.yaml
+   ```
+4. **Ensure `secret.yaml` is NOT listed in `infra/k8s/kustomization.yaml`** under `resources:`, preventing Argo CD from throwing a manifest generation error.
+
 ---
 
 ### 2.5 Database Migrations and Test Seeding
@@ -117,6 +132,31 @@ Execute the automated test suite and validate system correctness against the off
    ```bash
    python fulfillops_public_checker.py --base-url http://localhost:8080 --concurrency --stress
    ```
+
+---
+
+### 2.7 Accessing Argo CD and Prometheus UIs (Kubernetes Mode)
+If you deployed the application via Kubernetes (`kind`), you can port-forward the management dashboards locally to inspect reconciliation health and metrics:
+
+#### 1. Argo CD Dashboard (GitOps Controller)
+* **Port-forward the Argo CD server:**
+  ```bash
+  kubectl port-forward svc/argocd-server -n argocd 8081:443
+  ```
+* Open your browser and navigate to: `https://localhost:8081`
+* **Default Username:** `admin`
+* **Retrieve the Initial Admin Password:**
+  ```bash
+  kubectl get secret argocd-initial-admin-secret -n argocd -o jsonpath="{.data.password}" | base64 -d
+  ```
+
+#### 2. Prometheus Observability Dashboard
+* **Port-forward the Prometheus service:**
+  ```bash
+  kubectl port-forward svc/prometheus -n fulfillops 9090:9090
+  ```
+  *(Note: If your service name differs, you can port-forward directly to the pod: `kubectl port-forward pod/<prometheus-pod-name> -n fulfillops 9090:9090`)*
+* Open your browser and navigate to: `http://localhost:9090` to inspect scraped metrics and alert rules.
 
 ---
 
